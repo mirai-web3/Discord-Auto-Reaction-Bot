@@ -1,12 +1,11 @@
 /**
  * Discord Auto Reaction Bot
  * 
- * Enhanced with human-like behavior and rate limit protection.
- * Uses .env file for configuration.
+ * Optimized with human-like behavior, rate limit protection,
+ * timestamp logging, and no file persistence.
  */
 require('dotenv').config();
 const Discord = require('discord-simple-api');
-const fs = require('fs');
 
 // Load configuration from .env file
 const config = {
@@ -25,51 +24,46 @@ const config = {
   consecutiveErrorThreshold: 3,  // How many errors before backing off
   backoffMultiplier: 2,          // How much to multiply the interval when backing off
   maxBackoffInterval: 300000,    // Maximum backoff interval (5 minutes)
-  
-  // Persistence
-  logFile: 'reaction-log.json'
 };
 
 // Validate required configuration
 if (!config.token || !config.channelId) {
-  console.error('ERROR: Missing required environment variables.');
-  console.error('Please create a .env file with DISCORD_TOKEN and CHANNEL_ID.');
+  logWithTimestamp('ERROR: Missing required environment variables.');
+  logWithTimestamp('Please create a .env file with DISCORD_TOKEN and CHANNEL_ID.');
   process.exit(1);
 }
 
 // Initialize Discord client
 const discordClient = new Discord(config.token);
 
-// State variables
+// State variables - memory only, no file persistence
 let lastProcessedMessageId = '';
 let consecutiveErrors = 0;
 let currentInterval = config.baseCheckInterval;
 let activeCheckInterval = null;
 let isProcessing = false;
-
-// Try to load the last processed message ID from the log file
-try {
-  if (fs.existsSync(config.logFile)) {
-    const logData = JSON.parse(fs.readFileSync(config.logFile, 'utf8'));
-    lastProcessedMessageId = logData.lastMessageId || '';
-    console.log(`Loaded last processed message ID: ${lastProcessedMessageId}`);
-  }
-} catch (error) {
-  console.warn(`Could not load from log file: ${error.message}`);
-}
+let startTime = new Date();
+let messagesReactedTo = 0;
+let messagesSkipped = 0;
 
 /**
- * Save the last processed message ID to the log file
- * @param {string} messageId - The ID of the last processed message
+ * Log message with timestamp
+ * @param {string} message - The message to log
+ * @param {string} level - Log level (info, warn, error)
  */
-function saveLastProcessedMessageId(messageId) {
-  try {
-    fs.writeFileSync(config.logFile, JSON.stringify({ 
-      lastMessageId: messageId,
-      lastUpdated: new Date().toISOString()
-    }));
-  } catch (error) {
-    console.error(`Error saving log file: ${error.message}`);
+function logWithTimestamp(message, level = 'info') {
+  const timestamp = new Date().toISOString();
+  const prefix = `[${timestamp}]`;
+  
+  switch (level) {
+    case 'error':
+      console.error(`${prefix} ERROR: ${message}`);
+      break;
+    case 'warn':
+      console.warn(`${prefix} WARNING: ${message}`);
+      break;
+    default:
+      console.log(`${prefix} ${message}`);
   }
 }
 
@@ -120,7 +114,7 @@ function handleRateLimitBackoff() {
       config.maxBackoffInterval
     );
     
-    console.warn(`Rate limit detected. Backing off. New check interval: ${currentInterval / 1000}s`);
+    logWithTimestamp(`Rate limit detected. Backing off. New check interval: ${currentInterval / 1000}s`, 'warn');
     
     // Reset the interval with the new timing
     resetCheckInterval();
@@ -140,7 +134,7 @@ function handleSuccessfulOperation() {
         currentInterval / config.backoffMultiplier,
         config.baseCheckInterval
       );
-      console.log(`Reducing backoff. New check interval: ${currentInterval / 1000}s`);
+      logWithTimestamp(`Reducing backoff. New check interval: ${currentInterval / 1000}s`);
       resetCheckInterval();
     }
   }
@@ -161,7 +155,7 @@ function resetCheckInterval() {
   
   // Set new interval
   activeCheckInterval = setInterval(checkAndReactToMessages, intervalTime);
-  console.log(`Check interval set to ${intervalTime / 1000}s`);
+  logWithTimestamp(`Check interval set to ${intervalTime / 1000}s`);
 }
 
 /**
@@ -216,7 +210,8 @@ async function checkAndReactToMessages() {
         
         // Random chance to skip reaction (more human-like)
         if (!shouldReactToMessage()) {
-          console.log(`Randomly skipped reaction to message: ${message.id}`);
+          logWithTimestamp(`Randomly skipped reaction to message: ${message.id}`);
+          messagesSkipped++;
           continue;
         }
         
@@ -227,27 +222,28 @@ async function checkAndReactToMessages() {
         setTimeout(async () => {
           try {
             await discordClient.addReaction(config.channelId, message.id, config.defaultEmoji);
-            console.log(`Added ${config.defaultEmoji} reaction to message: ${message.id}`);
+            logWithTimestamp(`Added ${config.defaultEmoji} reaction to message: ${message.id}`);
+            messagesReactedTo++;
+            printStats();
           } catch (error) {
             if (error.response && error.response.status === 429) {
-              console.error('Rate limit hit! Backing off...');
+              logWithTimestamp('Rate limit hit! Backing off...', 'error');
               handleRateLimitBackoff();
             } else {
-              console.error(`Error adding reaction to message ${message.id}: ${error.message}`);
+              logWithTimestamp(`Error adding reaction to message ${message.id}: ${error.message}`, 'error');
             }
           }
         }, delay);
       }
       
-      // Update the last processed message ID
+      // Update the last processed message ID (memory only)
       lastProcessedMessageId = latestMessage.id;
-      saveLastProcessedMessageId(latestMessage.id);
       
       // Reset error counter on successful operation
       handleSuccessfulOperation();
     }
   } catch (error) {
-    console.error(`Error checking for messages: ${error.message}`);
+    logWithTimestamp(`Error checking for messages: ${error.message}`, 'error');
     
     // Check if the error is rate limiting related
     if (error.response && error.response.status === 429) {
@@ -259,25 +255,52 @@ async function checkAndReactToMessages() {
 }
 
 /**
+ * Print statistics about the bot's operation
+ */
+function printStats() {
+  const now = new Date();
+  const runTime = Math.floor((now - startTime) / 1000);
+  const hours = Math.floor(runTime / 3600);
+  const minutes = Math.floor((runTime % 3600) / 60);
+  const seconds = runTime % 60;
+  const timeString = `${hours}h ${minutes}m ${seconds}s`;
+  
+  const totalMessages = messagesReactedTo + messagesSkipped;
+  const actualReactionRate = totalMessages > 0 ? 
+    Math.round((messagesReactedTo / totalMessages) * 100) : 0;
+  
+  // Only log stats every 5 reactions or every 20 skips to avoid console spam
+  if (messagesReactedTo % 5 === 0 || totalMessages % 20 === 0) {
+    logWithTimestamp(`--- STATS (Runtime: ${timeString}) ---`);
+    logWithTimestamp(`Messages reacted to: ${messagesReactedTo}`);
+    logWithTimestamp(`Messages skipped: ${messagesSkipped}`);
+    logWithTimestamp(`Actual reaction rate: ${actualReactionRate}% (Target: ${config.reactionProbability}%)`);
+    logWithTimestamp(`Current check interval: ${currentInterval / 1000}s`);
+    logWithTimestamp(`----------------------------`);
+  }
+}
+
+/**
  * Change the reaction emoji
  * @param {string} newEmoji - The new emoji to use for reactions
  */
 function changeReactionEmoji(newEmoji) {
   if (newEmoji) {
     config.defaultEmoji = newEmoji;
-    console.log(`Reaction emoji changed to: ${newEmoji}`);
+    logWithTimestamp(`Reaction emoji changed to: ${newEmoji}`);
     return true;
   }
   return false;
 }
 
 // Start the auto-reaction process
-console.log('='.repeat(50));
-console.log(`Starting Discord Auto Reaction Bot`);
-console.log(`Channel ID: ${config.channelId}`);
-console.log(`Using emoji: ${config.defaultEmoji}`);
-console.log(`Reaction probability: ${config.reactionProbability}%`);
-console.log('='.repeat(50));
+logWithTimestamp('='.repeat(50));
+logWithTimestamp(`Starting Discord Auto Reaction Bot`);
+logWithTimestamp(`Channel ID: ${config.channelId}`);
+logWithTimestamp(`Using emoji: ${config.defaultEmoji}`);
+logWithTimestamp(`Reaction probability: ${config.reactionProbability}%`);
+logWithTimestamp(`Memory-only mode: No logs will be saved to disk`);
+logWithTimestamp('='.repeat(50));
 
 // Perform the initial check after a small delay
 setTimeout(() => {
@@ -290,13 +313,20 @@ process.on('SIGINT', () => {
   if (activeCheckInterval) {
     clearInterval(activeCheckInterval);
   }
-  console.log('\nAuto-reaction bot gracefully stopped');
+  
+  // Print final stats
+  logWithTimestamp('\n='.repeat(50));
+  logWithTimestamp('Auto-reaction bot gracefully stopped');
+  printStats();
+  logWithTimestamp('='.repeat(50));
+  
   process.exit(0);
 });
 
 // Handle uncaught exceptions
 process.on('uncaughtException', (error) => {
-  console.error('Uncaught exception:', error);
+  logWithTimestamp('Uncaught exception:', 'error');
+  logWithTimestamp(error.message, 'error');
   // Continue running but back off if needed
   handleRateLimitBackoff();
 });
