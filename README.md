@@ -1,53 +1,67 @@
 # Discord Auto Reaction Bot
 
-A simple bot that automatically reacts to new messages in a Discord channel with a customizable emoji.
+A human-like automatic reaction bot for Discord that adds emoji reactions to new messages in a channel. Built with natural behavior patterns to avoid detection and rate limits.
 
 ## Features
 
-- Reacts only to new messages as they arrive
-- Uses configurable emoji (default: 🔥)
-- Adds random delays to appear more human-like
-- Easy to set up and run
+- **Automatic Reactions**: Reacts to new messages as they appear in a specified channel
+- **Human-Like Behavior**: Variable delays, selective reactions, and natural timing patterns
+- **Rate Limit Protection**: Intelligent backoff system to avoid Discord's "Too Many Requests" errors
+- **Memory-Only Operation**: No log files or disk storage needed
+- **Real-Time Statistics**: Tracks and displays bot performance with timestamps
+- **Customizable**: Configure emoji, reaction probability, and timing parameters
 
-## Setup Instructions
+## Installation
 
-1. Install dependencies:
+1. **Clone or download this repository**
+
+2. **Install dependencies**
+
    ```bash
-   npm install discord-simple-api dotenv fs
+   npm install discord-simple-api dotenv
    ```
 
-2. Create a `.env` file in the same directory as the script with the following contents:
+3. **Create a .env file**
+
+   Create a `.env` file in the project root with:
+
    ```
-   DISCORD_TOKEN=your_discord_bot_token_here
-   CHANNEL_ID=your_target_channel_id_here
+   DISCORD_TOKEN=your_discord_token_here
+   CHANNEL_ID=your_channel_id_here
    DEFAULT_EMOJI=🔥
+   REACTION_PROBABILITY=85
    ```
 
-3. Replace the placeholder values in the `.env` file:
-   - `your_discord_bot_token_here`: Your Discord bot token
-   - `your_target_channel_id_here`: The ID of the channel you want to monitor
-   - `🔥`: Your preferred emoji (optional, defaults to 🔥)
+4. **Start the bot**
 
-## Running the Bot
+   ```bash
+   node index.js
+   ```
 
-Start the bot with:
-```bash
-node index.js
-```
+## How It Works
 
-The bot will:
-- Monitor the specified channel for new messages
-- React to each new message with your chosen emoji
-- Add a random delay (1-3 seconds) before reacting
-- Check for new messages every 5 seconds
-- Keep track of the last processed message to avoid duplicate reactions
+The bot monitors a specific Discord channel and reacts to new messages with a configurable emoji. It uses several techniques to appear more natural:
 
-## Stopping the Bot
+- **Variable timing**: Adds random delays before reacting
+- **Reading simulation**: Longer messages get longer "reading" delays
+- **Selective reactions**: Only reacts to a percentage of messages based on REACTION_PROBABILITY
+- **Timestamp logging**: All operations are logged with precise timestamps
 
-Press `Ctrl+C` in the terminal to stop the bot.
+### REACTION_PROBABILITY Explained
 
-## Changing Settings
+The `REACTION_PROBABILITY` setting (default: 85) controls how often the bot reacts to messages:
 
-Edit the `.env` file to change the bot token, channel ID, or default emoji.
+- Set to 100: Bot will attempt to react to every message (very bot-like)
+- Set to 85: Bot will react to approximately 85% of messages
+- Set to 50: Bot will react to only half of the messages
+- Lower values make the bot appear more casual/human-like
 
-For more advanced settings (like reaction delays or check interval), modify the configuration section in the script.
+## Troubleshooting
+
+- **Rate limit errors**: The bot automatically backs off when it encounters rate limits
+- **Connection issues**: Check your Discord token is valid
+- **No reactions**: Ensure the channel ID is correct and the bot has permission to react
+
+## Acknowledgements
+
+This project relies on [Discord-Simple-API](https://github.com/dante4rt/Discord-Simple-API) created by [Muhammad Ramadhani (dante4rt)](https://github.com/dante4rt). Many thanks to the author for creating this simple yet powerful Discord API wrapper that makes this bot possible.
