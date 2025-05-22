@@ -8,6 +8,32 @@ require('dotenv').config();
 const Discord = require('discord-simple-api');
 const fs = require('fs');
 
+/**
+ * Get formatted timestamp for logging
+ * @returns {string} Formatted timestamp
+ */
+function getTimestamp() {
+  return new Date().toLocaleString('en-US', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    timeZoneName: 'short'
+  });
+}
+
+/**
+ * Enhanced console logging with timestamps
+ */
+const logger = {
+  log: (message) => console.log(`[${getTimestamp()}] ${message}`),
+  error: (message) => console.error(`[${getTimestamp()}] ERROR: ${message}`),
+  warn: (message) => console.warn(`[${getTimestamp()}] WARN: ${message}`),
+  info: (message) => console.info(`[${getTimestamp()}] INFO: ${message}`)
+};
+
 // Load configuration from .env file
 const config = {
   token: process.env.DISCORD_TOKEN,
@@ -32,8 +58,8 @@ const config = {
 
 // Validate required configuration
 if (!config.token || !config.channelId) {
-  console.error('ERROR: Missing required environment variables.');
-  console.error('Please create a .env file with DISCORD_TOKEN and CHANNEL_ID.');
+  logger.error('Missing required environment variables.');
+  logger.error('Please create a .env file with DISCORD_TOKEN and CHANNEL_ID.');
   process.exit(1);
 }
 
@@ -52,10 +78,10 @@ try {
   if (fs.existsSync(config.logFile)) {
     const logData = JSON.parse(fs.readFileSync(config.logFile, 'utf8'));
     lastProcessedMessageId = logData.lastMessageId || '';
-    console.log(`Loaded last processed message ID: ${lastProcessedMessageId}`);
+    logger.info(`Loaded last processed message ID: ${lastProcessedMessageId}`);
   }
 } catch (error) {
-  console.warn(`Could not load from log file: ${error.message}`);
+  logger.warn(`Could not load from log file: ${error.message}`);
 }
 
 /**
@@ -69,7 +95,7 @@ function saveLastProcessedMessageId(messageId) {
       lastUpdated: new Date().toISOString()
     }));
   } catch (error) {
-    console.error(`Error saving log file: ${error.message}`);
+    logger.error(`Error saving log file: ${error.message}`);
   }
 }
 
@@ -120,7 +146,7 @@ function handleRateLimitBackoff() {
       config.maxBackoffInterval
     );
     
-    console.warn(`Rate limit detected. Backing off. New check interval: ${currentInterval / 1000}s`);
+    logger.warn(`Rate limit detected. Backing off. New check interval: ${currentInterval / 1000}s`);
     
     // Reset the interval with the new timing
     resetCheckInterval();
@@ -140,7 +166,7 @@ function handleSuccessfulOperation() {
         currentInterval / config.backoffMultiplier,
         config.baseCheckInterval
       );
-      console.log(`Reducing backoff. New check interval: ${currentInterval / 1000}s`);
+      logger.info(`Reducing backoff. New check interval: ${currentInterval / 1000}s`);
       resetCheckInterval();
     }
   }
@@ -161,7 +187,7 @@ function resetCheckInterval() {
   
   // Set new interval
   activeCheckInterval = setInterval(checkAndReactToMessages, intervalTime);
-  console.log(`Check interval set to ${intervalTime / 1000}s`);
+  logger.info(`Check interval set to ${intervalTime / 1000}s`);
 }
 
 /**
@@ -216,7 +242,7 @@ async function checkAndReactToMessages() {
         
         // Random chance to skip reaction (more human-like)
         if (!shouldReactToMessage()) {
-          console.log(`Randomly skipped reaction to message: ${message.id}`);
+          logger.log(`Randomly skipped reaction to message: ${message.id}`);
           continue;
         }
         
@@ -227,13 +253,13 @@ async function checkAndReactToMessages() {
         setTimeout(async () => {
           try {
             await discordClient.addReaction(config.channelId, message.id, config.defaultEmoji);
-            console.log(`Added ${config.defaultEmoji} reaction to message: ${message.id}`);
+            logger.log(`Added ${config.defaultEmoji} reaction to message: ${message.id}`);
           } catch (error) {
             if (error.response && error.response.status === 429) {
-              console.error('Rate limit hit! Backing off...');
+              logger.error('Rate limit hit! Backing off...');
               handleRateLimitBackoff();
             } else {
-              console.error(`Error adding reaction to message ${message.id}: ${error.message}`);
+              logger.error(`Error adding reaction to message ${message.id}: ${error.message}`);
             }
           }
         }, delay);
@@ -247,7 +273,7 @@ async function checkAndReactToMessages() {
       handleSuccessfulOperation();
     }
   } catch (error) {
-    console.error(`Error checking for messages: ${error.message}`);
+    logger.error(`Error checking for messages: ${error.message}`);
     
     // Check if the error is rate limiting related
     if (error.response && error.response.status === 429) {
@@ -265,19 +291,19 @@ async function checkAndReactToMessages() {
 function changeReactionEmoji(newEmoji) {
   if (newEmoji) {
     config.defaultEmoji = newEmoji;
-    console.log(`Reaction emoji changed to: ${newEmoji}`);
+    logger.info(`Reaction emoji changed to: ${newEmoji}`);
     return true;
   }
   return false;
 }
 
 // Start the auto-reaction process
-console.log('='.repeat(50));
-console.log(`Starting Discord Auto Reaction Bot`);
-console.log(`Channel ID: ${config.channelId}`);
-console.log(`Using emoji: ${config.defaultEmoji}`);
-console.log(`Reaction probability: ${config.reactionProbability}%`);
-console.log('='.repeat(50));
+logger.log('='.repeat(50));
+logger.log(`Starting Discord Auto Reaction Bot`);
+logger.info(`Channel ID: ${config.channelId}`);
+logger.info(`Using emoji: ${config.defaultEmoji}`);
+logger.info(`Reaction probability: ${config.reactionProbability}%`);
+logger.log('='.repeat(50));
 
 // Perform the initial check after a small delay
 setTimeout(() => {
@@ -290,13 +316,13 @@ process.on('SIGINT', () => {
   if (activeCheckInterval) {
     clearInterval(activeCheckInterval);
   }
-  console.log('\nAuto-reaction bot gracefully stopped');
+  logger.info('Auto-reaction bot gracefully stopped');
   process.exit(0);
 });
 
 // Handle uncaught exceptions
 process.on('uncaughtException', (error) => {
-  console.error('Uncaught exception:', error);
+  logger.error(`Uncaught exception: ${error.message}`);
   // Continue running but back off if needed
   handleRateLimitBackoff();
 });
